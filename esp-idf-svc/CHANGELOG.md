@@ -10,8 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - esp32s31: Wi-Fi, netif and the other non-Bluetooth services compile for the new chip (ESP-IDF v6.1+); `bt` is not ported yet
 - thread: esp32s31 support (native IEEE 802.15.4 radio, host mode; ESP-IDF v6.1+)
+- Eth: the `eth` module is now available with the internal EMAC of the esp32s31 (`CONFIG_ETH_USE_ESP32_EMAC`), not only on esp32
+- Eth: `EthDriver::read_phy_reg` / `write_phy_reg` / `set_autonego` for PHY specific setup
+- Eth: `EthDriver::new_rgmii` (`RgmiiEth` flavor, new `RgmiiPins` / `EmacConfig` / `EmacDmaBurstLen` types) for the internal EMAC of the esp32s31 in RGMII mode (1000 Mbps), with the Generic IEEE 802.3 PHY driver. The RGMII pins are fixed to GPIO8..=19 (the second EMAC pad set cannot do RGMII: its RXD0 pad, GPIO41, is not bonded); the optional PHY reference clock output is on GPIO35
 
 ### Fixed
+- Eth: the MAC and the PHY are now deleted when the `EthDriver` is dropped or when its creation fails, instead of being leaked
 - Netif: align the default PPP client with ESP-IDF's PPP configuration, correctly deserialize `IP_EVENT_PPP_LOST_IP`, and keep custom driver lifecycle state in sync across start/stop calls.
 
 ## [0.53.0] - 2026-09-25

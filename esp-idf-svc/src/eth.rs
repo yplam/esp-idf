@@ -11,6 +11,7 @@ use embedded_svc::eth::*;
 
 #[cfg(any(
     all(esp32, esp_idf_eth_use_esp32_emac),
+    all(esp32s31, esp_idf_eth_use_esp32_emac),
     any(
         esp_idf_eth_spi_ethernet_dm9051,
         esp_idf_eth_spi_ethernet_w5500,
@@ -138,6 +139,140 @@ impl RmiiClockConfig<'_> {
         };
 
         eth_mac_clock_config_t { rmii }
+    }
+}
+
+/// Pins of the RGMII interface of the internal EMAC, see [`EthDriver::new_rgmii`].
+///
+/// The RGMII signals are routed through the IO MUX, not the GPIO matrix, so they are bound to
+/// fixed pads. The esp32s31 has a second set of EMAC pads (GPIO36..=47), but it cannot be used
+/// for RGMII: its RXD0 pad is GPIO41, which is not bonded. Hence the pins are fixed to GPIO8..=19.
+///
+/// GPIO13..=19 are in the CNNT power domain and stay operational when the TOP domain is
+/// powered down (EMAC wake-up).
+#[cfg(all(esp32s31, esp_idf_eth_use_esp32_emac))]
+pub struct RgmiiPins<'d> {
+    /// TXD0
+    pub gpio8: gpio::Gpio8<'d>,
+    /// TXD1
+    pub gpio9: gpio::Gpio9<'d>,
+    /// TXD2
+    pub gpio10: gpio::Gpio10<'d>,
+    /// TXD3
+    pub gpio11: gpio::Gpio11<'d>,
+    /// TX_CTL
+    pub gpio12: gpio::Gpio12<'d>,
+    /// TX_CLK
+    pub gpio13: gpio::Gpio13<'d>,
+    /// RX_CLK
+    pub gpio14: gpio::Gpio14<'d>,
+    /// RX_CTL
+    pub gpio15: gpio::Gpio15<'d>,
+    /// RXD3
+    pub gpio16: gpio::Gpio16<'d>,
+    /// RXD2
+    pub gpio17: gpio::Gpio17<'d>,
+    /// RXD1
+    pub gpio18: gpio::Gpio18<'d>,
+    /// RXD0
+    pub gpio19: gpio::Gpio19<'d>,
+}
+
+#[cfg(all(esp32s31, esp_idf_eth_use_esp32_emac))]
+impl RgmiiPins<'_> {
+    fn clock_config(&self, phy_ref_clk: Option<&gpio::Gpio35<'_>>) -> eth_mac_clock_config_t {
+        use gpio::Pin;
+
+        eth_mac_clock_config_t {
+            rgmii: eth_mac_clock_config_t__bindgen_ty_3 {
+                clock_rx_gpio: self.gpio14.pin() as _,
+                clock_tx_gpio: self.gpio13.pin() as _,
+                clock_phy_ref_gpio: phy_ref_clk.map_or(-1, |pin| pin.pin() as _),
+            },
+        }
+    }
+
+    fn dataif_gpio(&self) -> eth_mac_dataif_gpio_config_t {
+        use gpio::Pin;
+
+        eth_mac_dataif_gpio_config_t {
+            rgmii: eth_mac_rgmii_gpio_config_t {
+                tx_ctl_num: self.gpio12.pin() as _,
+                txd0_num: self.gpio8.pin() as _,
+                txd1_num: self.gpio9.pin() as _,
+                txd2_num: self.gpio10.pin() as _,
+                txd3_num: self.gpio11.pin() as _,
+                rx_ctl_num: self.gpio15.pin() as _,
+                rxd0_num: self.gpio19.pin() as _,
+                rxd1_num: self.gpio18.pin() as _,
+                rxd2_num: self.gpio17.pin() as _,
+                rxd3_num: self.gpio16.pin() as _,
+            },
+        }
+    }
+}
+
+/// DMA burst length of the internal EMAC, for both TX and RX
+#[cfg(all(esp32s31, esp_idf_eth_use_esp32_emac))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum EmacDmaBurstLen {
+    Len1,
+    Len2,
+    Len4,
+    Len8,
+    Len16,
+    Len32,
+}
+
+#[cfg(all(esp32s31, esp_idf_eth_use_esp32_emac))]
+impl EmacDmaBurstLen {
+    fn raw(&self) -> eth_mac_dma_burst_len_t {
+        match self {
+            Self::Len1 => eth_mac_dma_burst_len_t_ETH_DMA_BURST_LEN_1,
+            Self::Len2 => eth_mac_dma_burst_len_t_ETH_DMA_BURST_LEN_2,
+            Self::Len4 => eth_mac_dma_burst_len_t_ETH_DMA_BURST_LEN_4,
+            Self::Len8 => eth_mac_dma_burst_len_t_ETH_DMA_BURST_LEN_8,
+            Self::Len16 => eth_mac_dma_burst_len_t_ETH_DMA_BURST_LEN_16,
+            Self::Len32 => eth_mac_dma_burst_len_t_ETH_DMA_BURST_LEN_32,
+        }
+    }
+}
+
+/// Configuration of the internal EMAC and of its PHY, see [`EthDriver::new_rgmii`].
+///
+/// The defaults match the ESP-IDF defaults of the chip (`ETH_ESP32_EMAC_DEFAULT_CONFIG()` and
+/// `ETH_PHY_DEFAULT_CONFIG()`).
+#[cfg(all(esp32s31, esp_idf_eth_use_esp32_emac))]
+#[derive(Clone, Debug)]
+pub struct EmacConfig {
+    /// DMA burst length, for both TX and RX
+    pub dma_burst_len: EmacDmaBurstLen,
+    /// Interrupt priority; 0 (or a negative value) lets the driver pick a default priority
+    pub intr_priority: i32,
+    /// Upper limit of the MDC (SMI clock) frequency in Hz; 0 (or a negative value) means up to 2.5 MHz
+    pub mdc_freq_hz: i32,
+    /// PHY software reset timeout
+    pub phy_reset_timeout_ms: u32,
+    /// PHY autonegotiation timeout
+    pub phy_autonego_timeout_ms: u32,
+    /// Time the PHY hardware reset pin is asserted; 0 uses the PHY driver default
+    pub phy_hw_reset_assert_time_us: i32,
+    /// Time to wait after the PHY hardware reset; 0 uses the PHY driver default, -1 means no wait
+    pub phy_post_hw_reset_delay_ms: i32,
+}
+
+#[cfg(all(esp32s31, esp_idf_eth_use_esp32_emac))]
+impl Default for EmacConfig {
+    fn default() -> Self {
+        Self {
+            dma_burst_len: EmacDmaBurstLen::Len16,
+            intr_priority: 0,
+            mdc_freq_hz: 0,
+            phy_reset_timeout_ms: 100,
+            phy_autonego_timeout_ms: 4000,
+            phy_hw_reset_assert_time_us: 0,
+            phy_post_hw_reset_delay_ms: 0,
+        }
     }
 }
 
@@ -324,6 +459,9 @@ pub struct RmiiEth;
 
 pub struct OpenEth;
 
+#[cfg(all(esp32s31, esp_idf_eth_use_esp32_emac))]
+pub struct RgmiiEth;
+
 pub struct SpiEth<T> {
     _driver: T,
     device: Option<spi_device_handle_t>,
@@ -343,8 +481,8 @@ impl<T> Drop for SpiEth<T> {
 ///
 /// The driver works on Layer 2 (Data Link) in the OSI model, in that it provides
 /// facilities for sending and receiving ethernet packets over the built-in
-/// RMII interface of `esp32` and/or via a dedicated SPI ethernet peripheral for all
-/// other MCUs.
+/// EMAC (RMII on the `esp32`, RGMII on the `esp32s31`) and/or via a dedicated SPI
+/// ethernet peripheral for all other MCUs.
 ///
 /// For most use cases, utilizing `EspEth` - which provides a networking (IP)
 /// layer as well - should be preferred. Using `EthDriver` directly is beneficial
@@ -352,6 +490,8 @@ impl<T> Drop for SpiEth<T> {
 pub struct EthDriver<'d, T> {
     _flavor: T,
     handle: esp_eth_handle_t,
+    mac: *mut esp_eth_mac_t,
+    phy: *mut esp_eth_phy_t,
     status: Arc<mutex::Mutex<Status>>,
     _subscription: EspSubscription<'static, System>,
     callback: Option<Box<RawCallback<'d>>>,
@@ -420,7 +560,7 @@ impl<'d> EthDriver<'d, RmiiEth> {
                 rmii_mdio.pin() as _,
                 &rmii_ref_clk_config,
             ),
-            Self::rmii_phy(chipset, rst, phy_addr)?,
+            Self::rmii_phy(chipset, rst, phy_addr),
             None,
             RmiiEth {},
             sysloop,
@@ -433,14 +573,14 @@ impl<'d> EthDriver<'d, RmiiEth> {
         chipset: RmiiEthChipset,
         reset: Option<i32>,
         phy_addr: Option<u32>,
-    ) -> Result<*mut esp_eth_phy_t, EspError> {
+    ) -> *mut esp_eth_phy_t {
         let phy_cfg = Self::eth_phy_default_config(reset, phy_addr);
 
         // In ESP-IDF v6.0+, specific PHY functions were moved to the external
         // esp-eth-drivers component (https://github.com/espressif/esp-eth-drivers).
         // If the component is included, use the specific function.
         // A generic driver is always available since v5.4.0, and can be used as fallback.
-        let phy = match chipset {
+        match chipset {
             #[cfg(esp_idf_version_at_least_5_4_0)]
             RmiiEthChipset::Generic => unsafe { esp_eth_phy_new_generic(&phy_cfg) },
             #[cfg(any(
@@ -475,9 +615,7 @@ impl<'d> EthDriver<'d, RmiiEth> {
                 )
             ))]
             RmiiEthChipset::KSZ80XX => unsafe { esp_eth_phy_new_ksz80xx(&phy_cfg) },
-        };
-
-        Ok(phy)
+        }
     }
 
     fn rmii_mac(mdc: i32, mdio: i32, clk_config: &RmiiClockConfig<'d>) -> *mut esp_eth_mac_t {
@@ -555,6 +693,83 @@ impl<'d> EthDriver<'d, RmiiEth> {
             },
             interface: eth_data_interface_t_EMAC_DATA_INTERFACE_RMII,
             ..Default::default()
+        }
+    }
+}
+
+#[cfg(all(esp32s31, esp_idf_eth_use_esp32_emac))]
+impl<'d> EthDriver<'d, RgmiiEth> {
+    /// Create a driver for the internal EMAC in RGMII mode (10/100/1000 Mbps), with a PHY
+    /// driven by the Generic IEEE 802.3 PHY driver.
+    ///
+    /// PHY specific setup not done by the Generic PHY driver (e.g. RGMII delays) can be done
+    /// with [`EthDriver::read_phy_reg`] / [`EthDriver::write_phy_reg`], after this call and
+    /// before the driver is started.
+    ///
+    /// `phy_ref_clk` optionally outputs a 50 MHz reference clock to the PHY on GPIO35
+    /// (the only pad for it), for PHYs without their own crystal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_rgmii(
+        _mac: crate::hal::mac::MAC<'d>,
+        mdc: impl gpio::OutputPin + 'd,
+        mdio: impl gpio::InputPin + gpio::OutputPin + 'd,
+        pins: RgmiiPins<'d>,
+        phy_ref_clk: Option<gpio::Gpio35<'d>>,
+        rst: Option<impl gpio::OutputPin + 'd>,
+        phy_addr: Option<u32>,
+        config: EmacConfig,
+        sysloop: EspSystemEventLoop,
+    ) -> Result<Self, EspError> {
+        let esp32_config = Self::eth_esp32_emac_config(
+            mdc.pin() as _,
+            mdio.pin() as _,
+            &pins,
+            phy_ref_clk.as_ref(),
+            &config,
+        );
+        let mac_config = Self::eth_mac_default_config(0, 0);
+
+        let phy_config = eth_phy_config_t {
+            reset_timeout_ms: config.phy_reset_timeout_ms,
+            autonego_timeout_ms: config.phy_autonego_timeout_ms,
+            hw_reset_assert_time_us: config.phy_hw_reset_assert_time_us,
+            post_hw_reset_delay_ms: config.phy_post_hw_reset_delay_ms,
+            ..Self::eth_phy_default_config(rst.map(|rst| rst.pin() as _), phy_addr)
+        };
+
+        let mac = unsafe { esp_eth_mac_new_esp32(&esp32_config, &mac_config) };
+        let phy = unsafe { esp_eth_phy_new_generic(&phy_config) };
+
+        Self::init(mac, phy, None, RgmiiEth, sysloop)
+    }
+
+    fn eth_esp32_emac_config(
+        mdc: i32,
+        mdio: i32,
+        pins: &RgmiiPins<'_>,
+        phy_ref_clk: Option<&gpio::Gpio35<'_>>,
+        config: &EmacConfig,
+    ) -> eth_esp32_emac_config_t {
+        // Every field is set explicitly: zeroed GPIO fields would mean GPIO0, not "unused" (-1)
+        eth_esp32_emac_config_t {
+            smi_gpio: emac_esp_smi_gpio_config_t {
+                mdc_num: mdc,
+                mdio_num: mdio,
+            },
+            interface: eth_data_interface_t_EMAC_DATA_INTERFACE_RGMII,
+            clock_config: pins.clock_config(phy_ref_clk),
+            dma_burst_len: config.dma_burst_len.raw(),
+            intr_priority: config.intr_priority,
+            emac_dataif_gpio: pins.dataif_gpio(),
+            // Only used for an RMII clock output looped back externally
+            clock_config_out_in: eth_mac_clock_config_t {
+                rgmii: eth_mac_clock_config_t__bindgen_ty_3 {
+                    clock_rx_gpio: -1,
+                    clock_tx_gpio: -1,
+                    clock_phy_ref_gpio: -1,
+                },
+            },
+            mdc_freq_hz: config.mdc_freq_hz,
         }
     }
 }
@@ -935,13 +1150,58 @@ impl<'d, T> EthDriver<'d, T> {
         flavor: T,
         sysloop: EspSystemEventLoop,
     ) -> Result<Self, EspError> {
+        if mac.is_null() || phy.is_null() {
+            ::log::error!("Failed to create the Ethernet MAC and/or PHY");
+
+            let _ = unsafe { Self::del_mac_phy(mac, phy) };
+
+            return Err(EspError::from_infallible::<ESP_ERR_INVALID_ARG>());
+        }
+
         let cfg = Self::eth_default_config(mac, phy);
 
         let mut handle: esp_eth_handle_t = ptr::null_mut();
-        esp!(unsafe { esp_eth_driver_install(&cfg, &mut handle) })?;
+        if let Err(err) = esp!(unsafe { esp_eth_driver_install(&cfg, &mut handle) }) {
+            let _ = unsafe { Self::del_mac_phy(mac, phy) };
+
+            return Err(err);
+        }
 
         ::log::info!("Driver initialized");
 
+        let (waitable, subscription) = match Self::post_install(handle, mac_addr, &sysloop) {
+            Ok(result) => result,
+            Err(err) => {
+                if esp!(unsafe { esp_eth_driver_uninstall(handle) }).is_ok() {
+                    let _ = unsafe { Self::del_mac_phy(mac, phy) };
+                }
+
+                return Err(err);
+            }
+        };
+
+        let eth = Self {
+            handle,
+            mac,
+            phy,
+            _flavor: flavor,
+            status: waitable,
+            _subscription: subscription,
+            callback: None,
+            _p: PhantomData,
+        };
+
+        ::log::info!("Initialization complete");
+
+        Ok(eth)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn post_install(
+        handle: esp_eth_handle_t,
+        mac_addr: Option<&[u8; 6]>,
+        sysloop: &EspEventLoop<System>,
+    ) -> Result<(Arc<mutex::Mutex<Status>>, EspSubscription<'static, System>), EspError> {
         if let Some(mac_addr) = mac_addr {
             esp!(unsafe {
                 esp_eth_ioctl(
@@ -954,20 +1214,25 @@ impl<'d, T> EthDriver<'d, T> {
             ::log::info!("Attached MAC address: {mac_addr:?}");
         }
 
-        let (waitable, subscription) = Self::subscribe(handle, &sysloop)?;
+        Self::subscribe(handle, sysloop)
+    }
 
-        let eth = Self {
-            handle,
-            _flavor: flavor,
-            status: waitable,
-            _subscription: subscription,
-            callback: None,
-            _p: PhantomData,
+    /// Delete `mac` and `phy`, skipping the null ones.
+    unsafe fn del_mac_phy(
+        mac: *mut esp_eth_mac_t,
+        phy: *mut esp_eth_phy_t,
+    ) -> Result<(), EspError> {
+        let mac_result = match mac.as_ref().and_then(|mac| mac.del) {
+            Some(del) => esp!(del(mac)),
+            None => Ok(()),
         };
 
-        ::log::info!("Initialization complete");
+        let phy_result = match phy.as_ref().and_then(|phy| phy.del) {
+            Some(del) => esp!(del(phy)),
+            None => Ok(()),
+        };
 
-        Ok(eth)
+        mac_result.and(phy_result)
     }
 
     fn subscribe(
@@ -1115,6 +1380,13 @@ impl<'d, T> EthDriver<'d, T> {
 
         ::log::info!("Driver deinitialized");
 
+        if let Err(err) = unsafe { Self::del_mac_phy(self.mac, self.phy) } {
+            ::log::warn!("Failed to delete the Ethernet MAC and/or PHY: {err}");
+        }
+
+        self.mac = ptr::null_mut();
+        self.phy = ptr::null_mut();
+
         Ok(())
     }
 
@@ -1137,6 +1409,65 @@ impl<'d, T> EthDriver<'d, T> {
         } else {
             ::log::info!("Driver set in non-promiscuous mode");
         }
+
+        Ok(())
+    }
+
+    /// Reads the PHY register `reg`.
+    ///
+    /// Useful for PHY specific configuration not covered by the PHY driver.
+    pub fn read_phy_reg(&self, reg: u32) -> Result<u32, EspError> {
+        let mut value: u32 = 0;
+        let mut data = esp_eth_phy_reg_rw_data_t {
+            reg_addr: reg,
+            reg_value_p: &mut value,
+        };
+
+        esp!(unsafe {
+            esp_eth_ioctl(
+                self.handle(),
+                esp_eth_io_cmd_t_ETH_CMD_READ_PHY_REG,
+                &mut data as *mut _ as *mut _,
+            )
+        })?;
+
+        Ok(value)
+    }
+
+    /// Writes `value` to the PHY register `reg`.
+    ///
+    /// Useful for PHY specific configuration not covered by the PHY driver.
+    pub fn write_phy_reg(&mut self, reg: u32, value: u32) -> Result<(), EspError> {
+        let mut value = value;
+        let mut data = esp_eth_phy_reg_rw_data_t {
+            reg_addr: reg,
+            reg_value_p: &mut value,
+        };
+
+        esp!(unsafe {
+            esp_eth_ioctl(
+                self.handle(),
+                esp_eth_io_cmd_t_ETH_CMD_WRITE_PHY_REG,
+                &mut data as *mut _ as *mut _,
+            )
+        })?;
+
+        Ok(())
+    }
+
+    /// Enables or disables the link speed and duplex mode autonegotiation of the PHY.
+    ///
+    /// The driver must be stopped, otherwise `ESP_ERR_INVALID_STATE` is returned.
+    pub fn set_autonego(&mut self, enable: bool) -> Result<(), EspError> {
+        let mut enable = enable;
+
+        esp!(unsafe {
+            esp_eth_ioctl(
+                self.handle(),
+                esp_eth_io_cmd_t_ETH_CMD_S_AUTONEGO,
+                &mut enable as *mut _ as *mut _,
+            )
+        })?;
 
         Ok(())
     }

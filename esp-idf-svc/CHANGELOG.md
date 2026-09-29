@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- esp32s31: Wi-Fi, netif and the other non-Bluetooth services compile for the new chip (ESP-IDF v6.1+); `bt` is not ported yet
+- esp32s31: Wi-Fi, netif and the other services compile for the new chip (ESP-IDF v6.1+)
 - thread: esp32s31 support (native IEEE 802.15.4 radio, host mode; ESP-IDF v6.1+)
+- bt: esp32s31 support in all three controller modes
+- ble: esp32s31 support (NimBLE, BLE-only controller mode)
 - Eth: the `eth` module is now available with the internal EMAC of the esp32s31 (`CONFIG_ETH_USE_ESP32_EMAC`), not only on esp32
 - Eth: `EthDriver::read_phy_reg` / `write_phy_reg` / `set_autonego` for PHY specific setup
 - Eth: `EthDriver::new_rgmii` (`RgmiiEth` flavor, new `RgmiiPins` / `EmacConfig` / `EmacDmaBurstLen` types) for the internal EMAC of the esp32s31 in RGMII mode (1000 Mbps), with the Generic IEEE 802.3 PHY driver. The RGMII pins are fixed to GPIO8..=19 (the second EMAC pad set cannot do RGMII: its RXD0 pad, GPIO41, is not bonded); the optional PHY reference clock output is on GPIO35
